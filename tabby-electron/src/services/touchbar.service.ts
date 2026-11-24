@@ -1,0 +1,68 @@
+import deepEqual from 'deep-equal'
+import { Subject, distinctUntilChanged, map, throttleTime } from 'rxjs'
+import { ipcRenderer } from 'electron'
+import { Injectable, NgZone } from '@angular/core'
+import { AppService, ConfigService, HostAppService, Platform } from 'tabby-core'
+
+// Tab titles can change many times a second, and every change the Touch Bar
+// is sent costs the main process a native layout pass.
+const TOUCHBAR_UPDATE_INTERVAL = 1000
+
+/** @hidden */
+@Injectable({ providedIn: 'root' })
+export class TouchbarService {
+    private touchbarState$ = new Subject<any>()
+
+    private constructor (
+        private app: AppService,
+        private hostApp: HostAppService,
+        private config: ConfigService,
+        private zone: NgZone,
+    ) {
+        if (this.hostApp.platform !== Platform.macOS) {
+            return
+        }
+        app.tabsChanged$.subscribe(() => this.update())
+        app.activeTabChange$.subscribe(() => this.update())
+
+        app.tabOpened$.subscribe(tab => {
+            tab.titleChange$.subscribe(() => this.update())
+            tab.activity$.pipe(
+                map(x => !x || tab === app.activeTab),
+                distinctUntilChanged(),
+            ).subscribe(() => this.update())
+        })
+
+        ipcRenderer.on('touchbar-selection', (_event, index) => this.zone.run(() => {
+            this.app.selectTab(this.app.tabs[index])
+        }))
+
+        this.touchbarState$.pipe(
+            // leading: a tab switch shows up at once; trailing: the last title is never dropped
+            throttleTime(TOUCHBAR_UPDATE_INTERVAL, undefined, { leading: true, trailing: true }),
+            distinctUntilChanged(deepEqual),
+        ).subscribe(state => {
+            ipcRenderer.send('window-set-touch-bar', ...state)
+        })
+    }
+
+    update (): void {
+        if (this.hostApp.platform !== Platform.macOS || this.config.store.hacks.disableTouchBar) {
+            return
+        }
+
+        const tabSegments = this.app.tabs.map(tab => ({
+            label: this.shortenTitle(tab.title),
+            hasActivity: this.app.activeTab !== tab && tab.hasActivity,
+        }))
+
+        this.touchbarState$.next([tabSegments, this.app.activeTab ? this.app.tabs.indexOf(this.app.activeTab) : undefined])
+    }
+
+    private shortenTitle (title: string): string {
+        if (title.length > 15) {
+            title = title.substring(0, 15) + '...'
+        }
+        return title
+    }
+}

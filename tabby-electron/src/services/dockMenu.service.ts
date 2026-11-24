@@ -1,0 +1,72 @@
+import { NgZone, Injectable } from '@angular/core'
+import { ConfigService, HostAppService, Platform, ProfilesService, TranslateService } from 'tabby-core'
+import { ElectronService } from './electron.service'
+
+/** @hidden */
+@Injectable({ providedIn: 'root' })
+export class DockMenuService {
+    appVersion: string
+
+    private constructor (
+        private configService: ConfigService,
+        private electron: ElectronService,
+        private hostApp: HostAppService,
+        private zone: NgZone,
+        private profilesService: ProfilesService,
+        private translate: TranslateService,
+    ) {
+        this.configService.changed$.subscribe(() => this.update())
+    }
+
+    async update (): Promise<void> {
+        let profiles = await this.profilesService.getProfiles()
+        profiles = profiles.filter(x => x.id && !this.configService.store.profileBlacklist.includes(x.id))
+        const allRecentProfiles = this.profilesService.getRecentProfiles()
+        const recentProfiles = allRecentProfiles.filter(x => x.id && !this.configService.store.profileBlacklist.includes(x.id))
+
+        if (this.hostApp.platform === Platform.Windows) {
+            this.electron.app.setJumpList([
+                {
+                    type: 'custom',
+                    name: this.translate.instant('Recent'),
+                    items: recentProfiles.map(profile => ({
+                        type: 'task',
+                        program: process.execPath,
+                        // `recent N` indexes the unfiltered list
+                        args: `recent ${allRecentProfiles.indexOf(profile)}`,
+                        title: profile.name,
+                        iconPath: process.execPath,
+                        iconIndex: 0,
+                    })),
+                },
+                {
+                    type: 'custom',
+                    name: this.translate.instant('Profiles'),
+                    items: profiles.map(profile => ({
+                        type: 'task', program: process.execPath,
+                        args: `profile "${profile.name}"`,
+                        title: profile.name,
+                        iconPath: process.execPath,
+                        iconIndex: 0,
+                    })),
+                },
+            ])
+        }
+        if (this.hostApp.platform === Platform.macOS) {
+            this.electron.app.dock?.setMenu(this.electron.Menu.buildFromTemplate(
+                [
+                    ...[...recentProfiles, ...profiles].map(profile => ({
+                        label: profile.name,
+                        click: () => this.zone.run(async () => {
+                            this.profilesService.openNewTabForProfile(profile)
+                        }),
+                    })),
+                    {
+                        label: this.translate.instant('New Window'),
+                        click: () => this.zone.run(() => this.hostApp.newWindow()),
+                    },
+                ],
+            ))
+        }
+    }
+}

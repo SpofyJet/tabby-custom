@@ -1,0 +1,144 @@
+import { ipcRenderer } from 'electron'
+import { ChildProcess, PTYInterface, PTYProxy } from 'tabby-local'
+import { getWorkingDirectoryFromPID } from 'native-process-working-directory'
+import { getLinuxChildProcesses } from './linuxProcess'
+
+/* eslint-disable block-scoped-var */
+
+try {
+    var macOSNativeProcessList = require('macos-native-processlist')  // eslint-disable-line @typescript-eslint/no-var-requires, no-var
+} catch { }
+
+try {
+    var windowsProcessTree = require('@tabby-gang/windows-process-tree')  // eslint-disable-line @typescript-eslint/no-var-requires, no-var
+} catch { }
+
+export class ElectronPTYInterface extends PTYInterface {
+    async spawn (...options: any[]): Promise<PTYProxy> {
+        const result = ipcRenderer.sendSync('pty:spawn', ...options)
+        if (result.error) {
+            throw new Error(result.error)
+        }
+        return new ElectronPTYProxy(result.id)
+    }
+
+    async restore (id: string): Promise<ElectronPTYProxy|null> {
+        if (ipcRenderer.sendSync('pty:exists', id)) {
+            return new ElectronPTYProxy(id)
+        }
+        return null
+    }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+export class ElectronPTYProxy extends PTYProxy {
+    private subscriptions: Map<string, any> = new Map()
+    private truePID: Promise<number>
+
+    constructor (
+        private id: string,
+    ) {
+        super()
+        this.truePID = new Promise(async (resolve) => {
+            await new Promise(r => setTimeout(r, 2000))
+            // Read the PID only now: on Windows, node-pty connects ConPTY asynchronously
+            // and reports PID 0 until it has, which would hide every child process (#11810)
+            let pid = await this.getPID()
+            try {
+                // Retrieve any possible single children now that shell has fully started
+                let processes = await this.getChildProcessesInternal(pid)
+                while (pid && processes.length === 1) {
+                    if (!processes[0].pid) {
+                        break
+                    }
+                    pid = processes[0].pid
+                    processes = await this.getChildProcessesInternal(pid)
+                }
+            } finally {
+                resolve(pid)
+            }
+        })
+        this.truePID = this.truePID.catch(() => this.getPID())
+    }
+
+    getID (): string {
+        return this.id
+    }
+
+    getTruePID (): Promise<number> {
+        return this.truePID
+    }
+
+    async getPID (): Promise<number> {
+        return ipcRenderer.sendSync('pty:get-pid', this.id)
+    }
+
+    subscribe (event: string, handler: (..._: any[]) => void): void {
+        const key = `pty:${this.id}:${event}`
+        const newHandler = (_event, ...args) => handler(...args)
+        this.subscriptions.set(key, newHandler)
+        ipcRenderer.on(key, newHandler)
+    }
+
+    ackData (length: number): void {
+        ipcRenderer.send('pty:ack-data', this.id, length)
+    }
+
+    unsubscribeAll (): void {
+        for (const k of this.subscriptions.keys()) {
+            ipcRenderer.off(k, this.subscriptions.get(k))
+        }
+        this.subscriptions.clear()
+    }
+
+    async resize (columns: number, rows: number): Promise<void> {
+        ipcRenderer.send('pty:resize', this.id, columns, rows)
+    }
+
+    async write (data: Buffer): Promise<void> {
+        ipcRenderer.send('pty:write', this.id, data)
+    }
+
+    async kill (signal?: string): Promise<void> {
+        ipcRenderer.send('pty:kill', this.id, signal)
+    }
+
+    async getChildProcesses (): Promise<ChildProcess[]> {
+        return this.getChildProcessesInternal(await this.getTruePID())
+    }
+
+    async getChildProcessesInternal (truePID: number): Promise<ChildProcess[]> {
+        if (process.platform === 'darwin') {
+            const processes = await macOSNativeProcessList.getProcessList()
+            return processes.filter(x => x.ppid === truePID).map(p => ({
+                pid: p.pid,
+                ppid: p.ppid,
+                command: p.name,
+            }))
+        }
+        if (process.platform === 'win32') {
+            return new Promise<ChildProcess[]>(resolve => {
+                windowsProcessTree.getProcessTree(truePID, tree => {
+                    resolve(tree ? tree.children.map(child => ({
+                        pid: child.pid,
+                        ppid: tree.pid,
+                        command: child.name,
+                    })) : [])
+                })
+            })
+        }
+        try {
+            return await getLinuxChildProcesses(truePID)
+        } catch (error) {
+            // Not every Linux ps knows --ppid (busybox); closing a tab must
+            // still work there.
+            console.warn('Could not list child processes:', error)
+            return []
+        }
+    }
+
+    async getWorkingDirectory (): Promise<string|null> {
+        return getWorkingDirectoryFromPID(await this.getTruePID())
+    }
+
+}
