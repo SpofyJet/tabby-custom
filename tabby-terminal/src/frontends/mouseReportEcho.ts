@@ -2,6 +2,14 @@ const MOUSE_REPORT = /\x1b\[<?(\d{1,5};\d{1,5};\d{1,5}[Mm])/g
 
 export const DISABLE_MOUSE_TRACKING = '\x1b[?9l\x1b[?1000l\x1b[?1001l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l'
 
+function isPlainText (text: string, index: number): boolean {
+    if (index > 0 && /[\d;]/.test(text[index - 1])) {
+        return false
+    }
+    const prefix = text.slice(Math.max(0, index - 3), index)
+    return !prefix.endsWith('\x1b[<') && !prefix.endsWith('\x1b[')
+}
+
 interface SentReport {
     body: string
     at: number
@@ -57,13 +65,4 @@ export class MouseReportEchoDetector {
         this.sent = []
         this.tail = ''
     }
-}
-
-function isPlainText (text: string, index: number): boolean {
-    const before = text[index - 1]
-    if (before !== undefined && /[\d;]/.test(before)) {
-        return false
-    }
-    const prefix = text.slice(Math.max(0, index - 3), index)
-    return !prefix.endsWith('\x1b[<') && !prefix.endsWith('\x1b[')
 }
