@@ -43,7 +43,7 @@ async function listLocalFontFamilies (): Promise<string[]> {
     const timeout = new Promise<{ family: string }[]>(resolve => setTimeout(() => resolve([]), 5000))
     try {
         const fonts = await Promise.race([query.call(window), timeout])
-        return [...new Set(fonts.map(x => x.family.trim()).filter(x => !!x))].sort()
+        return Array.from(new Set<string>(fonts.map(x => x.family.trim()).filter(x => !!x))).sort()
     } catch {
         return []
     }
