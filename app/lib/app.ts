@@ -129,7 +129,13 @@ export class Application {
         if (this.windows.length === 1) {
             window.makeMain()
         }
-        this.enableTray()
+        window.visible$.subscribe(visible => {
+            if (visible) {
+                this.disableTray()
+            } else {
+                this.enableTray()
+            }
+        })
         window.closed$.subscribe(() => {
             this.windows = this.windows.filter(x => x !== window)
             if (!this.windows.some(x => x.isMainWindow)) {
@@ -204,23 +210,10 @@ export class Application {
 
         this.tray.on('click', () => setTimeout(() => this.focus()))
 
-        const contextMenu = Menu.buildFromTemplate([
-            {
-                label: 'Toggle Window',
-                click: () => this.toggleWindowVisibility(),
-            },
-            {
-                type: 'separator',
-            },
-            {
-                label: 'Exit',
-                click: () => {
-                    for (const window of this.windows) {
-                        window.quit()
-                    }
-                },
-            },
-        ])
+        const contextMenu = Menu.buildFromTemplate([{
+            label: 'Show',
+            click: () => this.focus(),
+        }])
 
         if (process.platform !== 'darwin') {
             this.tray.setContextMenu(contextMenu)
@@ -235,10 +228,6 @@ export class Application {
         }
         this.tray?.destroy()
         this.tray = undefined
-    }
-
-    hasTray (): boolean {
-        return !!this.tray
     }
 
     hasWindows (): boolean {
@@ -303,20 +292,6 @@ export class Application {
     focus (): void {
         for (const window of this.windows) {
             window.present()
-        }
-    }
-
-    private toggleWindowVisibility (): void {
-        const isVisible = this.windows.some(x => x.isVisible())
-
-        if (isVisible) {
-            for (const window of this.windows) {
-                window.hide()
-            }
-        } else {
-            for (const window of this.windows) {
-                window.present()
-            }
         }
     }
 

@@ -261,10 +261,6 @@ export class Window {
         return this.isMainWindow && this.configStore.appearance?.dock && this.configStore.appearance?.dock !== 'off' && (this.configStore.appearance?.dockAlwaysOnTop ?? true)
     }
 
-    quit (): void {
-        this.window.destroy()
-    }
-
     async hide (): Promise<void> {
         if (!this.window) {
             return
@@ -376,10 +372,6 @@ export class Window {
         this.window.on('close', event => {
             if (!this.closing) {
                 event.preventDefault()
-                if (this.application.hasTray()) {
-                    this.window.hide()
-                    return
-                }
                 this.send('host:window-close-request')
                 return
             }
