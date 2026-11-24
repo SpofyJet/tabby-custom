@@ -35,6 +35,20 @@ export function resolveInsideBase (basePath: string, relativePath: string): stri
     return target
 }
 
+async function listLocalFontFamilies (): Promise<string[]> {
+    const query = (window as any).queryLocalFonts as (() => Promise<{ family: string }[]>) | undefined
+    if (!query) {
+        return []
+    }
+    const timeout = new Promise<{ family: string }[]>(resolve => setTimeout(() => resolve([]), 5000))
+    try {
+        const fonts = await Promise.race([query.call(window), timeout])
+        return [...new Set(fonts.map(x => x.family.trim()).filter(x => !!x))].sort()
+    } catch {
+        return []
+    }
+}
+
 @Injectable({ providedIn: 'root' })
 export class ElectronPlatformService extends PlatformService {
     supportsWindowControls = true
@@ -207,7 +221,10 @@ export class ElectronPlatformService extends PlatformService {
     }
 
     async listFonts (): Promise<string[]> {
-        if (this.hostApp.platform === Platform.Windows || this.hostApp.platform === Platform.macOS) {
+        if (this.hostApp.platform === Platform.Windows) {
+            return listLocalFontFamilies()
+        }
+        if (this.hostApp.platform === Platform.macOS) {
             let fonts = await new Promise<any[]>(resolve => fontManager.getAvailableFonts(resolve))
             fonts = fonts.map(x => x.family.trim())
             return fonts

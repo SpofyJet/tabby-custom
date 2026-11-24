@@ -23,11 +23,8 @@ export const builtinPlugins = [
     'tabby-web',
     'tabby-community-color-schemes',
     'tabby-ssh',
-    'tabby-serial',
-    'tabby-telnet',
     'tabby-local',
     'tabby-electron',
-    'tabby-plugin-manager',
     'tabby-linkifier',
     'tabby-auto-sudo-password',
 ]

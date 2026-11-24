@@ -3,7 +3,7 @@ on:
   push:
   workflow_dispatch:
 env:
-  TABBY_VERSION: 1.0.239-custom.1
+  TABBY_VERSION: 1.0.239-custom.2
 jobs:
   Lint:
     runs-on: ubuntu-24.04

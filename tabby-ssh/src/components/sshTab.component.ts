@@ -192,6 +192,9 @@ export class SSHTabComponent extends ConnectableTerminalTabComponent<SSHProfile>
             } catch (e) {
                 console.error('SSH session initialization failed', e)
                 this.write(colors.black.bgRed(' X ') + ' ' + colors.red(e.message) + '\r\n')
+                if (this.frontend && !this.isDisconnectedByHand) {
+                    this.offerReconnection()
+                }
                 return
             }
         }
